@@ -1,0 +1,130 @@
+#!/bin/bash
+# Mike launcher — single command to start/stop/status the app
+# Usage: ./mike {start|stop|restart|status|logs}
+
+set -e
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+PIDFILE="$ROOT/.mike.pids"
+HOST="${MIKE_HOST:-192.168.2.204}"
+
+log_info()  { echo "[mike] $1"; }
+log_warn()  { echo "[mike] ⚠ $1"; }
+log_error() { echo "[mike] ✗ $1"; }
+log_ok()    { echo "[mike] ✓ $1"; }
+
+# ---------------------------------------------------------------------------
+cmd_start() {
+    if [ -f "$PIDFILE" ]; then
+        read -r backend_pid frontend_pid < "$PIDFILE" 2>/dev/null || true
+        if kill -0 "$backend_pid" 2>/dev/null && kill -0 "$frontend_pid" 2>/dev/null; then
+            log_warn "Already running."
+            cmd_status
+            return
+        fi
+    fi
+
+    log_info "Starting Mike..."
+    log_info "Database : $ROOT/backend/data/mike.sqlite"
+    log_info "Storage  : $ROOT/backend/data/storage/"
+
+    cd "$ROOT/backend"
+    nohup npm run dev > "$ROOT/backend.log" 2>&1 &
+    BACKEND_PID=$!
+
+    cd "$ROOT/frontend"
+    nohup npm run dev:host > "$ROOT/frontend.log" 2>&1 &
+    FRONTEND_PID=$!
+
+    echo "$BACKEND_PID $FRONTEND_PID" > "$PIDFILE"
+
+    sleep 1
+    if kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; then
+        log_ok "Running"
+        log_info "Backend  : http://$HOST:3001"
+        log_info "Frontend : http://$HOST:3000"
+        log_info "Log      : tail -f $ROOT/backend.log $ROOT/frontend.log"
+    else
+        log_error "Failed to start — check logs"
+        cmd_logs
+        rm -f "$PIDFILE"
+        exit 1
+    fi
+}
+
+# ---------------------------------------------------------------------------
+cmd_stop() {
+    if [ ! -f "$PIDFILE" ]; then
+        log_warn "Not running (no pidfile)."
+        # Also try to clean up stray processes
+        pkill -f "tsx watch src/index.ts" 2>/dev/null || true
+        pkill -f "next dev -H 0.0.0.0" 2>/dev/null || true
+        return
+    fi
+
+    read -r backend_pid frontend_pid < "$PIDFILE" 2>/dev/null || true
+
+    if [ -n "$backend_pid" ] && kill -0 "$backend_pid" 2>/dev/null; then
+        kill "$backend_pid" 2>/dev/null && log_info "Stopped backend (pid $backend_pid)" || true
+    fi
+    if [ -n "$frontend_pid" ] && kill -0 "$frontend_pid" 2>/dev/null; then
+        kill "$frontend_pid" 2>/dev/null && log_info "Stopped frontend (pid $frontend_pid)" || true
+    fi
+
+    rm -f "$PIDFILE"
+    log_ok "Stopped"
+}
+
+# ---------------------------------------------------------------------------
+cmd_restart() {
+    cmd_stop
+    sleep 1
+    cmd_start
+}
+
+# ---------------------------------------------------------------------------
+cmd_status() {
+    if [ ! -f "$PIDFILE" ]; then
+        log_warn "Not running"
+        return
+    fi
+
+    read -r backend_pid frontend_pid < "$PIDFILE" 2>/dev/null || true
+    backend_up=false; kill -0 "$backend_pid" 2>/dev/null && backend_up=true
+    frontend_up=false; kill -0 "$frontend_pid" 2>/dev/null && frontend_up=true
+
+    if $backend_up && $frontend_up; then
+        log_ok "Running"
+        log_info "Backend  : http://$HOST:3001 (pid $backend_pid)"
+        log_info "Frontend : http://$HOST:3000 (pid $frontend_pid)"
+    else
+        log_warn "Partially down — backend: $backend_up, frontend: $frontend_up"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+cmd_logs() {
+    tail -n 30 -f "$ROOT/backend.log" "$ROOT/frontend.log" 2>/dev/null || \
+        log_warn "No logs yet"
+}
+
+# ---------------------------------------------------------------------------
+case "${1:-}" in
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    restart) cmd_restart ;;
+    status)  cmd_status ;;
+    logs)    cmd_logs ;;
+    *)
+        echo "Usage: $(basename "$0") {start|stop|restart|status|logs}"
+        echo ""
+        echo "  start   — Launch backend + frontend"
+        echo "  stop    — Kill both processes"
+        echo "  restart — Stop then start"
+        echo "  status  — Show running state"
+        echo "  logs    — Follow tail of both log files"
+        echo ""
+        echo "Env: MIKE_HOST (default: 192.168.2.204)"
+        exit 1
+        ;;
+esac
