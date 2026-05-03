@@ -365,7 +365,7 @@ tabularRouter.get("/:reviewId/people", requireAuth, async (req, res) => {
 
     // Same pattern as /projects/:id/people: walk auth.users to map emails
     // to user_ids, then pull display_names from user_profiles by user_id.
-    const { data: usersData } = await db.auth.admin.listUsers({
+    const { data: usersData } = await (db.auth as any).admin.listUsers({
         perPage: 1000,
     });
     const allUsers = usersData?.users ?? [];
@@ -521,11 +521,11 @@ tabularRouter.patch("/:reviewId", requireAuth, async (req, res) => {
             documentIds = newDocIds;
         } else {
             // No document change — derive from existing cells
-            documentIds = [
+            documentIds = ([
                 ...new Set(
-                    (existingCells ?? []).map((cell) => cell.document_id),
+                    (existingCells ?? []).map((cell) => (cell as any).document_id),
                 ),
-            ];
+            ] as string[]);
             if (documentIds.length === 0 && existingReview.project_id) {
                 const { data: projectDocs } = await db
                     .from("documents")

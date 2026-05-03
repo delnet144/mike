@@ -123,7 +123,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                             updated_at: new Date().toISOString(),
                         })
                         .eq("user_id", userId)
-                        .then(({ error }) => {
+                        .then(({ error }: { error: any }) => {
                             if (error)
                                 console.error(
                                     "Failed to auto-reset credits",

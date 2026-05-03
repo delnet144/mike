@@ -5,6 +5,7 @@ import {
     DEFAULT_TABULAR_MODEL,
     type UserApiKeys,
 } from "./llm";
+import { detectHermesConfig } from "./llm/hermes";
 
 export type UserModelSettings = {
     title_model: string;
@@ -20,6 +21,10 @@ function resolveTitleModel(apiKeys: UserApiKeys): string {
     if (apiKeys.gemini?.trim()) return DEFAULT_TITLE_MODEL;
     if (apiKeys.claude?.trim()) return "claude-haiku-4-5";
     return DEFAULT_TITLE_MODEL;
+}
+
+export function isHermesLocalMode(): boolean {
+    return !!detectHermesConfig();
 }
 
 export async function getUserModelSettings(

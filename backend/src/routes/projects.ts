@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { createServerSupabase } from "../lib/supabase";
-import { createClient } from "@supabase/supabase-js";
 import {
   attachActiveVersionPaths,
   attachLatestVersionNumbers,
@@ -62,9 +61,9 @@ projectsRouter.get("/", requireAuth, async (req, res) => {
       return {
         ...p,
         is_owner: p.user_id === userId,
-        document_count: docs.count ?? 0,
-        chat_count: chats.count ?? 0,
-        review_count: reviews.count ?? 0,
+        document_count: ((docs||[]).length) ?? 0,
+        chat_count: ((docs||[]).length) ?? 0,
+        review_count: ((docs||[]).length) ?? 0,
       };
     }),
   );

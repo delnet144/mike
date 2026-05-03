@@ -22,7 +22,7 @@ userRouter.post("/profile", requireAuth, async (req, res) => {
 userRouter.delete("/account", requireAuth, async (_req, res) => {
   const userId = res.locals.userId as string;
   const db = createServerSupabase();
-  const { error } = await db.auth.admin.deleteUser(userId);
+  const { error } = await (db.auth as any).admin.deleteUser(userId);
   if (error) return void res.status(500).json({ detail: error.message });
   res.status(204).send();
 });

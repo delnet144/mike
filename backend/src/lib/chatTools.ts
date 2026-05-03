@@ -1811,7 +1811,7 @@ export async function runToolCalls(
                             version_id: "",
                             download_url: "",
                             annotations: [],
-                            error: result.error,
+                            error: (result as any).error,
                         })}\n\n`,
                     );
                     toolResults.push({
@@ -1819,7 +1819,7 @@ export async function runToolCalls(
                         tool_call_id: tc.id,
                         content: JSON.stringify({
                             ok: false,
-                            error: result.error,
+                            error: (result as any).error,
                         }),
                     });
                 }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useId } from "react";
+import React from "react";
 
 const DEGREES = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
 const STOP_TRANSITION = "stop-color 220ms ease, stop-opacity 220ms ease";
@@ -104,7 +104,8 @@ export function MikeIcon({
     style?: React.CSSProperties;
 }) {
     void mike;
-    const id = useId().replace(/:/g, "");
+    // Stable deterministic ID to avoid SSR/hydration mismatches (was useId)
+    const id = `${size}-${spin ? 1 : 0}-${done ? 1 : 0}-${error ? 1 : 0}`;
     const palette = error
         ? ERROR_PALETTE
         : done
