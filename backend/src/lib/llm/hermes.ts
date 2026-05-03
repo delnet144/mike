@@ -66,7 +66,10 @@ export function detectHermesConfig(): HermesModelConfig | null {
         if (!doc || typeof doc !== "object") return null;
 
         const modelSection = (doc["model"] as Record<string, unknown>) || {};
-        const defaultModel = String(modelSection["default"] || "local-llm");
+        // Accept model.default or model.model
+        const defaultModel = String(
+            modelSection["default"] || modelSection["model"] || "local-llm",
+        );
         const baseUrl =
             String(modelSection["base_url"] || "") ||
             process.env.LOCAL_LLM_BASE_URL ||
@@ -92,12 +95,17 @@ function createClient(config?: Partial<HermesModelConfig>): OpenAI {
     const detected = detectHermesConfig();
     const baseURL = config?.baseUrl ?? detected?.baseUrl ?? "http://localhost:8000/v1";
     const apiKey = config?.apiKey ?? detected?.apiKey ?? "no-api-key";
-    return new OpenAI({ baseURL, apiKey, dangerouslyAllowBrowser: false });
+    return new OpenAI({ baseURL, apiKey, dangerouslyAllowBrowser: false, timeout: 60000, maxRetries: 1 });
 }
+
+const HERMES_PLACEHOLDERS = new Set(["local-llm", "hermes-local", ""]);
 
 function resolveModelName(given: string, _config?: Partial<HermesModelConfig>): string {
     const detected = detectHermesConfig();
-    return given || detected?.defaultModel || "local-llm";
+    if (HERMES_PLACEHOLDERS.has(given)) {
+        return detected?.defaultModel || "local-llm";
+    }
+    return given;
 }
 
 function toOpenAITools(tools: { type: string; function: { name: string; description: string; parameters: Record<string, unknown> } }[]): OpenAI.Chat.Completions.ChatCompletionTool[] {
@@ -135,16 +143,24 @@ export async function streamHermes(
         })),
     ];
 
+    console.log("[hermes] stream start — model:", resolvedModel, "tools:", openaiTools?.length ?? 0);
+
     let fullText = "";
 
     for (let iter = 0; iter < maxIterations; iter++) {
-        const stream = await client.chat.completions.create({
-            model: resolvedModel,
-            messages,
-            tools: openaiTools,
-            tool_choice: openaiTools ? "auto" : undefined,
-            stream: true,
-        });
+        let stream;
+        try {
+            stream = await client.chat.completions.create({
+                model: resolvedModel,
+                messages,
+                tools: openaiTools,
+                tool_choice: openaiTools ? "auto" : undefined,
+                stream: true,
+            });
+        } catch (err: any) {
+            console.error("[hermes] chat.completions.create failed:", err?.message || err);
+            throw err;
+        }
 
         let reasoningText = "";
         let contentText = "";
@@ -155,29 +171,34 @@ export async function streamHermes(
             { id: string; name: string; args: string }
         > = new Map();
 
-        for await (const chunk of stream) {
-            const delta = chunk.choices?.[0]?.delta;
-            if (delta?.content) {
-                contentText += delta.content;
-                callbacks.onContentDelta?.(delta.content);
-            }
-            const rc = (delta as Record<string, unknown>)?.reasoning_content;
-            if (typeof rc === "string") {
-                reasoningText += rc;
-                callbacks.onReasoningDelta?.(rc);
-            }
-            if (delta?.tool_calls) {
-                for (const tc of delta.tool_calls) {
-                    const idx = tc.index ?? 0;
-                    if (!toolCallAcc.has(idx)) {
-                        toolCallAcc.set(idx, { id: tc.id || "", name: "", args: "" });
+        try {
+            for await (const chunk of stream) {
+                const delta = chunk.choices?.[0]?.delta;
+                if (delta?.content) {
+                    contentText += delta.content;
+                    callbacks.onContentDelta?.(delta.content);
+                }
+                const rc = (delta as Record<string, unknown>)?.reasoning_content;
+                if (typeof rc === "string") {
+                    reasoningText += rc;
+                    callbacks.onReasoningDelta?.(rc);
+                }
+                if (delta?.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                        const idx = tc.index ?? 0;
+                        if (!toolCallAcc.has(idx)) {
+                            toolCallAcc.set(idx, { id: tc.id || "", name: "", args: "" });
+                        }
+                        const acc = toolCallAcc.get(idx)!;
+                        if (tc.id) acc.id = tc.id;
+                        if (tc.function?.name) acc.name += tc.function.name;
+                        if (tc.function?.arguments) acc.args += tc.function.arguments;
                     }
-                    const acc = toolCallAcc.get(idx)!;
-                    if (tc.id) acc.id = tc.id;
-                    if (tc.function?.name) acc.name += tc.function.name;
-                    if (tc.function?.arguments) acc.args += tc.function.arguments;
                 }
             }
+        } catch (err: any) {
+            console.error("[hermes] stream iteration failed:", err?.message || err);
+            throw err;
         }
 
         fullText += contentText;
@@ -232,6 +253,7 @@ export async function streamHermes(
         // Continue loop for next model turn.
     }
 
+    console.log("[hermes] stream finished — chars:", fullText.length);
     return { fullText };
 }
 
@@ -247,6 +269,8 @@ export async function completeHermesText(params: {
         ...(params.systemPrompt ? [{ role: "system" as const, content: params.systemPrompt }] : []),
         { role: "user", content: params.user },
     ];
+
+    console.log("[hermes] completeText — model:", resolvedModel);
 
     const resp = await client.chat.completions.create({
         model: resolvedModel,
