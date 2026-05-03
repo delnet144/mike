@@ -23,8 +23,15 @@ interface UserProfile {
     geminiApiKey: string | null;
 }
 
+interface HermesConfig {
+    available: boolean;
+    model: string;
+    baseUrl: string;
+}
+
 interface UserProfileContextType {
     profile: UserProfile | null;
+    hermesConfig: HermesConfig | null;
     loading: boolean;
     updateDisplayName: (name: string) => Promise<boolean>;
     updateOrganisation: (organisation: string) => Promise<boolean>;
@@ -44,10 +51,28 @@ const UserProfileContext = createContext<UserProfileContextType | undefined>(
     undefined,
 );
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const MONTHLY_CREDIT_LIMIT = 999999; // temporarily unlimited
+
 export function UserProfileProvider({ children }: { children: ReactNode }) {
     const { user, isAuthenticated } = useAuth();
     const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [hermesConfig, setHermesConfig] = useState<HermesConfig | null>(null);
     const [loading, setLoading] = useState(true);
+
+    // Fetch Hermes config once on mount
+    useEffect(() => {
+        fetch(`${API_BASE}/hermes-config`)
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                if (data?.available) {
+                    setHermesConfig(data);
+                }
+            })
+            .catch(() => {
+                // silently fail if backend isn't up yet
+            });
+    }, []);
 
     const loadProfile = useCallback(async (userId: string) => {
         try {
@@ -57,13 +82,13 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 .eq("user_id", userId)
                 .single();
 
-            // Define credit limit constant
-            const MONTHLY_CREDIT_LIMIT = 999999; // temporarily unlimited
-
             // Calculate a default future reset date (30 days from now)
             const futureResetDate = new Date();
             futureResetDate.setDate(futureResetDate.getDate() + 30);
             const defaultResetDateStr = futureResetDate.toISOString();
+
+            // Default tabular model: prefer local-llm when Hermes is detected
+            const defaultTabular = "local-llm";
 
             if (error) {
                 // Set fallback profile data if profile doesn't exist
@@ -74,7 +99,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     creditsResetDate: defaultResetDateStr,
                     creditsRemaining: MONTHLY_CREDIT_LIMIT,
                     tier: "Free",
-                    tabularModel: "gemini-3-flash-preview",
+                    tabularModel: defaultTabular,
                     claudeApiKey: null,
                     geminiApiKey: null,
                 });
@@ -107,8 +132,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     creditsResetDate: resetDate,
                     creditsRemaining: creditsRemaining,
                     tier: data.tier || "Free",
-                    tabularModel:
-                        data.tabular_model || "gemini-3-flash-preview",
+                    tabularModel: data.tabular_model || defaultTabular,
                     claudeApiKey: data.claude_api_key ?? null,
                     geminiApiKey: data.gemini_api_key ?? null,
                 });
@@ -143,9 +167,9 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                 organisation: null,
                 messageCreditsUsed: 0,
                 creditsResetDate: futureResetDate.toISOString(),
-                creditsRemaining: 999999, // temporarily unlimited
+                creditsRemaining: MONTHLY_CREDIT_LIMIT,
                 tier: "Free",
-                tabularModel: "gemini-3-flash-preview",
+                tabularModel: "local-llm",
                 claudeApiKey: null,
                 geminiApiKey: null,
             });
@@ -311,7 +335,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
                     ? {
                           ...prev,
                           messageCreditsUsed: newCreditsUsed,
-                          creditsRemaining: 999999 - newCreditsUsed, // temporarily unlimited
+                          creditsRemaining: MONTHLY_CREDIT_LIMIT - newCreditsUsed,
                       }
                     : null,
             );
@@ -326,6 +350,7 @@ export function UserProfileProvider({ children }: { children: ReactNode }) {
         <UserProfileContext.Provider
             value={{
                 profile,
+                hermesConfig,
                 loading,
                 updateDisplayName,
                 updateOrganisation,

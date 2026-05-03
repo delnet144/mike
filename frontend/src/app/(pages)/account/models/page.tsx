@@ -20,7 +20,17 @@ import {
 } from "@/app/lib/modelAvailability";
 
 export default function ModelsAndApiKeysPage() {
-    const { profile, updateModelPreference, updateApiKey } = useUserProfile();
+    const { profile, hermesConfig, updateModelPreference, updateApiKey } = useUserProfile();
+
+    const tabularValue = profile?.tabularModel ?? "local-llm";
+    const hermesLabel = hermesConfig?.available
+        ? `Local LLM (${hermesConfig.model})`
+        : "Local LLM";
+
+    // Build a model list that shows the actual Hermes model name for local
+    const modelsWithLabel = MODELS.map((m) =>
+        m.id === "local-llm" ? { ...m, label: hermesLabel } : m,
+    );
 
     return (
         <div className="space-y-4">
@@ -37,10 +47,8 @@ export default function ModelsAndApiKeysPage() {
                             Tabular review model
                         </label>
                         <TabularModelDropdown
-                            value={
-                                profile?.tabularModel ??
-                                "gemini-3-flash-preview"
-                            }
+                            value={tabularValue}
+                            models={modelsWithLabel}
                             apiKeys={{
                                 claudeApiKey: profile?.claudeApiKey ?? null,
                                 geminiApiKey: profile?.geminiApiKey ?? null,
@@ -49,46 +57,54 @@ export default function ModelsAndApiKeysPage() {
                                 updateModelPreference("tabularModel", id)
                             }
                         />
+                        {hermesConfig?.available && (
+                            <p className="text-xs text-gray-500 mt-1.5">
+                                Connected to Hermes — {hermesConfig.model} @{" "}
+                                {hermesConfig.baseUrl}
+                            </p>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* API Keys */}
-            <div className="py-6">
-                <div className="flex items-center gap-2 mb-2">
-                    <h2 className="text-2xl font-medium font-serif">
-                        API Keys
-                    </h2>
+            {/* API Keys — hidden entirely in local-only mode, otherwise shown */}
+            {!hermesConfig?.available && (
+                <div className="py-6">
+                    <div className="flex items-center gap-2 mb-2">
+                        <h2 className="text-2xl font-medium font-serif">
+                            API Keys
+                        </h2>
+                    </div>
+                    <p className="text-sm text-gray-500 mb-4 max-w-xl">
+                        You must provide your own API keys for the app to work or
+                        add your API keys into the .env file if you are running your
+                        own instance of Mike.
+                    </p>
+                    <p className="text-xs text-gray-400 mb-4 max-w-xl">
+                        Title generation automatically routes to the cheapest model
+                        of whichever provider you&rsquo;ve configured (Gemini Flash
+                        Lite if a Gemini key is set, otherwise Claude Haiku).
+                    </p>
+                    <div className="space-y-4 max-w-xl">
+                        <ApiKeyField
+                            label="Anthropic (Claude) API Key"
+                            placeholder="sk-ant-…"
+                            initialValue={profile?.claudeApiKey ?? ""}
+                            onSave={(value) =>
+                                updateApiKey("claude", value.trim() || null)
+                            }
+                        />
+                        <ApiKeyField
+                            label="Google (Gemini) API Key"
+                            placeholder="AI…"
+                            initialValue={profile?.geminiApiKey ?? ""}
+                            onSave={(value) =>
+                                updateApiKey("gemini", value.trim() || null)
+                            }
+                        />
+                    </div>
                 </div>
-                <p className="text-sm text-gray-500 mb-4 max-w-xl">
-                    You must provide your own API keys for the app to work or
-                    add your API keys into the .env file if you are running your
-                    own instance of Mike.
-                </p>
-                <p className="text-xs text-gray-400 mb-4 max-w-xl">
-                    Title generation automatically routes to the cheapest model
-                    of whichever provider you&rsquo;ve configured (Gemini Flash
-                    Lite if a Gemini key is set, otherwise Claude Haiku).
-                </p>
-                <div className="space-y-4 max-w-xl">
-                    <ApiKeyField
-                        label="Anthropic (Claude) API Key"
-                        placeholder="sk-ant-…"
-                        initialValue={profile?.claudeApiKey ?? ""}
-                        onSave={(value) =>
-                            updateApiKey("claude", value.trim() || null)
-                        }
-                    />
-                    <ApiKeyField
-                        label="Google (Gemini) API Key"
-                        placeholder="AI…"
-                        initialValue={profile?.geminiApiKey ?? ""}
-                        onSave={(value) =>
-                            updateApiKey("gemini", value.trim() || null)
-                        }
-                    />
-                </div>
-            </div>
+            )}
         </div>
     );
 }
@@ -96,16 +112,18 @@ export default function ModelsAndApiKeysPage() {
 function TabularModelDropdown({
     value,
     onChange,
+    models,
     apiKeys,
 }: {
     value: string;
     onChange: (id: string) => void;
+    models: { id: string; label: string; group: "Anthropic" | "Google" | "Local" }[];
     apiKeys: { claudeApiKey: string | null; geminiApiKey: string | null };
 }) {
     const [isOpen, setIsOpen] = useState(false);
-    const selected = MODELS.find((m) => m.id === value);
+    const selected = models.find((m) => m.id === value);
     const selectedAvailable = isModelAvailable(value, apiKeys);
-    const groups: ("Anthropic" | "Google")[] = ["Anthropic", "Google"];
+    const groups: ("Local" | "Anthropic" | "Google")[] = ["Local", "Anthropic", "Google"];
 
     return (
         <DropdownMenu onOpenChange={setIsOpen}>
@@ -133,7 +151,7 @@ function TabularModelDropdown({
                 align="start"
             >
                 {groups.map((group, gi) => {
-                    const items = MODELS.filter((m) => m.group === group);
+                    const items = models.filter((m) => m.group === group);
                     if (items.length === 0) return null;
                     return (
                         <div key={group}>

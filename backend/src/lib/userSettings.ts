@@ -43,9 +43,12 @@ export async function getUserModelSettings(
         gemini: data?.gemini_api_key ?? null,
     };
 
+    // Prefer local Hermes model when config is detected
+    const defaultTabular = detectHermesConfig() ? "local-llm" : DEFAULT_TABULAR_MODEL;
+
     return {
         title_model: resolveTitleModel(api_keys),
-        tabular_model: resolveModel(data?.tabular_model, DEFAULT_TABULAR_MODEL),
+        tabular_model: resolveModel(data?.tabular_model, defaultTabular),
         api_keys,
     };
 }

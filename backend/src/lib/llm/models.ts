@@ -1,4 +1,5 @@
 import type { Provider } from "./types";
+import { detectHermesConfig } from "./hermes";
 
 // ---------------------------------------------------------------------------
 // Canonical model IDs
@@ -24,9 +25,14 @@ export const HERMES_MAIN_MODELS = ["local-llm", "hermes-local"] as const;
 export const HERMES_MID_MODELS = ["local-llm"] as const;
 export const HERMES_LOW_MODELS = ["local-llm"] as const;
 
-export const DEFAULT_MAIN_MODEL = "gemini-3-flash-preview";
-export const DEFAULT_TITLE_MODEL = "gemini-3.1-flash-lite-preview";
-export const DEFAULT_TABULAR_MODEL = "gemini-3-flash-preview";
+// Defaults prefer local-llm when Hermes config is detected
+function _defaultModel(fallback: string): string {
+    return detectHermesConfig() ? "local-llm" : fallback;
+}
+
+export const DEFAULT_MAIN_MODEL = _defaultModel("gemini-3-flash-preview");
+export const DEFAULT_TITLE_MODEL = _defaultModel("gemini-3.1-flash-lite-preview");
+export const DEFAULT_TABULAR_MODEL = _defaultModel("gemini-3-flash-preview");
 
 const ALL_MODELS = new Set<string>([
     ...CLAUDE_MAIN_MODELS,

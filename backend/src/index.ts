@@ -34,6 +34,20 @@ app.use("/download", downloadsRouter);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Expose Hermes config so the frontend knows which local model is active
+app.get("/hermes-config", async (_req, res) => {
+  const { detectHermesConfig } = await import("./lib/llm/hermes");
+  const cfg = detectHermesConfig();
+  if (!cfg) {
+    return res.status(404).json({ available: false });
+  }
+  res.json({
+    available: true,
+    model: cfg.defaultModel,
+    baseUrl: cfg.baseUrl,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`Mike backend running on port ${PORT}`);
 });
